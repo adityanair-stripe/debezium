@@ -16,7 +16,7 @@ import org.junit.Test;
  * @author Anthony Noakes
  */
 
-public class MultiTaskOffsetHandlerTest {
+public class MultiTaskWindowHandlerTest {
 
     @Test
     public void initTestState() {
@@ -60,25 +60,25 @@ public class MultiTaskOffsetHandlerTest {
     @Test
     public void shouldGenerateStepwiseOffsetStart() {
 
-        // Offset it set to beginning of step
-        testGetStepwiseOffsetStart(0, 0, 10, 3, 0);
-        testGetStepwiseOffsetStart(10, 0, 10, 3, 1);
-        testGetStepwiseOffsetStart(20, 0, 10, 3, 2);
+        // Start from beginning of step
+        testGetStepwiseWindowStart(0, 0, 10, 3, 0);
+        testGetStepwiseWindowStart(10, 0, 10, 3, 1);
+        testGetStepwiseWindowStart(20, 0, 10, 3, 2);
 
-        // Offset is set to middle of step
-        MultiTaskWindowHandler m = testGetStepwiseOffsetStart(0, 5, 10, 3, 0);
-        testOptimizeStepwiseOffsetStart(5, 5, 0, m);
-        testGetStepwiseOffsetStart(10, 5, 10, 3, 1);
-        testGetStepwiseOffsetStart(20, 5, 10, 3, 2);
+        // Start from middle of step
+        MultiTaskWindowHandler m = testGetStepwiseWindowStart(0, 5, 10, 3, 0);
+        testOptimizeStepwiseWindowStart(5, 5, 0, m);
+        testGetStepwiseWindowStart(10, 5, 10, 3, 1);
+        testGetStepwiseWindowStart(20, 5, 10, 3, 2);
 
-        // Offset is set to beginning of next step
-        testGetStepwiseOffsetStart(30, 15, 10, 3, 0);
-        testGetStepwiseOffsetStart(10, 15, 10, 3, 1);
-        testGetStepwiseOffsetStart(20, 15, 10, 3, 2);
+        // Start from beginning of next step
+        testGetStepwiseWindowStart(30, 15, 10, 3, 0);
+        testGetStepwiseWindowStart(10, 15, 10, 3, 1);
+        testGetStepwiseWindowStart(20, 15, 10, 3, 2);
 
-        testGetStepwiseOffsetStart(30015, 30000, 15, 3, 0);
-        testGetStepwiseOffsetStart(30030, 30000, 15, 3, 1);
-        testGetStepwiseOffsetStart(30000, 30000, 15, 3, 2);
+        testGetStepwiseWindowStart(30015, 30000, 15, 3, 0);
+        testGetStepwiseWindowStart(30030, 30000, 15, 3, 1);
+        testGetStepwiseWindowStart(30000, 30000, 15, 3, 2);
     }
 
     private void testScenario(int start, int finalStop, int hop, int tasks, int taskId) {
@@ -88,9 +88,9 @@ public class MultiTaskOffsetHandlerTest {
             int stop = tempStart + hop;
             int nextStart = stop + ((tasks - 1) * hop);
 
-            MultiTaskWindowHandler m = testGetStepwiseOffsetStart(tempStart, tempStart, hop, tasks, taskId);
-            testGetStepwiseOffsetStop(stop, tempStart, hop, m);
-            testGetStepwiseOffsetNextStart(nextStart, stop, hop, tasks, m);
+            MultiTaskWindowHandler m = testGetStepwiseWindowStart(tempStart, tempStart, hop, tasks, taskId);
+            testGetStepwiseWindowStop(stop, tempStart, hop, m);
+            testGetStepwiseWindowNextStart(nextStart, stop, hop, tasks, m);
 
             tempStart = nextStart;
 
@@ -100,7 +100,7 @@ public class MultiTaskOffsetHandlerTest {
         Assert.assertEquals((int) ceil((double) (finalStop - start) / (double) (hop * tasks)), hops);
     }
 
-    private MultiTaskWindowHandler testGetStepwiseOffsetStart(int expectedSeconds, int timeInSeconds, int hopSize, int taskCount, int taskId) {
+    private MultiTaskWindowHandler testGetStepwiseWindowStart(int expectedSeconds, int timeInSeconds, int hopSize, int taskCount, int taskId) {
         BsonTimestamp ts = new BsonTimestamp(timeInSeconds, 0);
         BsonTimestamp bt = MultiTaskWindowHandler.getStepwiseWindowStart(ts, hopSize, taskCount, taskId);
 
@@ -113,7 +113,7 @@ public class MultiTaskOffsetHandlerTest {
         return m;
     }
 
-    private void testOptimizeStepwiseOffsetStart(int expectedSeconds, int timeInSeconds, int startInSeconds, MultiTaskWindowHandler m) {
+    private void testOptimizeStepwiseWindowStart(int expectedSeconds, int timeInSeconds, int startInSeconds, MultiTaskWindowHandler m) {
         BsonTimestamp opBt = new BsonTimestamp(timeInSeconds, 0);
         BsonTimestamp startBt = new BsonTimestamp(startInSeconds, 0);
         BsonTimestamp bt = MultiTaskWindowHandler.optimizeStepwiseWindowStart(opBt, startBt);
@@ -124,8 +124,8 @@ public class MultiTaskOffsetHandlerTest {
 
     }
 
-    private void testGetStepwiseOffsetStop(int expectedSeconds, int offsetStartInSeconds, int hopSize, MultiTaskWindowHandler m) {
-        BsonTimestamp ts = new BsonTimestamp(offsetStartInSeconds, 0);
+    private void testGetStepwiseWindowStop(int expectedSeconds, int windowStartInSeconds, int hopSize, MultiTaskWindowHandler m) {
+        BsonTimestamp ts = new BsonTimestamp(windowStartInSeconds, 0);
         BsonTimestamp bt = MultiTaskWindowHandler.getStepwiseWindowStop(ts, hopSize);
 
         long t = bt.getTime();
@@ -133,8 +133,8 @@ public class MultiTaskOffsetHandlerTest {
         assertThat(m.oplogStop.getTime()).isEqualTo(expectedSeconds);
     }
 
-    private void testGetStepwiseOffsetNextStart(int expectedSeconds, int offsetStopInSeconds, int hopSize, int taskCount, MultiTaskWindowHandler m) {
-        BsonTimestamp ts = new BsonTimestamp(offsetStopInSeconds, 0);
+    private void testGetStepwiseWindowNextStart(int expectedSeconds, int windowStopInSeconds, int hopSize, int taskCount, MultiTaskWindowHandler m) {
+        BsonTimestamp ts = new BsonTimestamp(windowStopInSeconds, 0);
         BsonTimestamp bt = MultiTaskWindowHandler.getStepwiseWindowNextStart(ts, hopSize, taskCount);
 
         m = m.nextHop();
