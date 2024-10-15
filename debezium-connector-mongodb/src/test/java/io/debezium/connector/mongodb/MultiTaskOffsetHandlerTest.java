@@ -20,8 +20,8 @@ public class MultiTaskOffsetHandlerTest {
 
     @Test
     public void initTestState() {
-        Assert.assertFalse(new MultiTaskOffsetHandler(10, 3, 0).started);
-        Assert.assertTrue(new MultiTaskOffsetHandler(new BsonTimestamp(100, 0), 10, 3, 0).started);
+        Assert.assertFalse(new MultiTaskWindowHandler(10, 3, 0).started);
+        Assert.assertTrue(new MultiTaskWindowHandler(new BsonTimestamp(100, 0), 10, 3, 0).started);
     }
 
     @Test
@@ -66,7 +66,7 @@ public class MultiTaskOffsetHandlerTest {
         testGetStepwiseOffsetStart(20, 0, 10, 3, 2);
 
         // Offset is set to middle of step
-        MultiTaskOffsetHandler m = testGetStepwiseOffsetStart(0, 5, 10, 3, 0);
+        MultiTaskWindowHandler m = testGetStepwiseOffsetStart(0, 5, 10, 3, 0);
         testOptimizeStepwiseOffsetStart(5, 5, 0, m);
         testGetStepwiseOffsetStart(10, 5, 10, 3, 1);
         testGetStepwiseOffsetStart(20, 5, 10, 3, 2);
@@ -88,7 +88,7 @@ public class MultiTaskOffsetHandlerTest {
             int stop = tempStart + hop;
             int nextStart = stop + ((tasks - 1) * hop);
 
-            MultiTaskOffsetHandler m = testGetStepwiseOffsetStart(tempStart, tempStart, hop, tasks, taskId);
+            MultiTaskWindowHandler m = testGetStepwiseOffsetStart(tempStart, tempStart, hop, tasks, taskId);
             testGetStepwiseOffsetStop(stop, tempStart, hop, m);
             testGetStepwiseOffsetNextStart(nextStart, stop, hop, tasks, m);
 
@@ -100,11 +100,11 @@ public class MultiTaskOffsetHandlerTest {
         Assert.assertEquals((int) ceil((double) (finalStop - start) / (double) (hop * tasks)), hops);
     }
 
-    private MultiTaskOffsetHandler testGetStepwiseOffsetStart(int expectedSeconds, int timeInSeconds, int hopSize, int taskCount, int taskId) {
+    private MultiTaskWindowHandler testGetStepwiseOffsetStart(int expectedSeconds, int timeInSeconds, int hopSize, int taskCount, int taskId) {
         BsonTimestamp ts = new BsonTimestamp(timeInSeconds, 0);
-        BsonTimestamp bt = MultiTaskOffsetHandler.getStepwiseOffsetStart(ts, hopSize, taskCount, taskId);
+        BsonTimestamp bt = MultiTaskWindowHandler.getStepwiseWindowStart(ts, hopSize, taskCount, taskId);
 
-        MultiTaskOffsetHandler m = new MultiTaskOffsetHandler(ts, hopSize, taskCount, taskId);
+        MultiTaskWindowHandler m = new MultiTaskWindowHandler(ts, hopSize, taskCount, taskId);
 
         long t = bt.getTime();
         assertThat(t).isEqualTo(expectedSeconds);
@@ -113,10 +113,10 @@ public class MultiTaskOffsetHandlerTest {
         return m;
     }
 
-    private void testOptimizeStepwiseOffsetStart(int expectedSeconds, int timeInSeconds, int startInSeconds, MultiTaskOffsetHandler m) {
+    private void testOptimizeStepwiseOffsetStart(int expectedSeconds, int timeInSeconds, int startInSeconds, MultiTaskWindowHandler m) {
         BsonTimestamp opBt = new BsonTimestamp(timeInSeconds, 0);
         BsonTimestamp startBt = new BsonTimestamp(startInSeconds, 0);
-        BsonTimestamp bt = MultiTaskOffsetHandler.optimizeStepwiseOffsetStart(opBt, startBt);
+        BsonTimestamp bt = MultiTaskWindowHandler.optimizeStepwiseWindowStart(opBt, startBt);
 
         long t = bt.getTime();
         assertThat(t).isEqualTo(expectedSeconds);
@@ -124,18 +124,18 @@ public class MultiTaskOffsetHandlerTest {
 
     }
 
-    private void testGetStepwiseOffsetStop(int expectedSeconds, int offsetStartInSeconds, int hopSize, MultiTaskOffsetHandler m) {
+    private void testGetStepwiseOffsetStop(int expectedSeconds, int offsetStartInSeconds, int hopSize, MultiTaskWindowHandler m) {
         BsonTimestamp ts = new BsonTimestamp(offsetStartInSeconds, 0);
-        BsonTimestamp bt = MultiTaskOffsetHandler.getStepwiseOffsetStop(ts, hopSize);
+        BsonTimestamp bt = MultiTaskWindowHandler.getStepwiseWindowStop(ts, hopSize);
 
         long t = bt.getTime();
         assertThat(t).isEqualTo(expectedSeconds);
         assertThat(m.oplogStop.getTime()).isEqualTo(expectedSeconds);
     }
 
-    private void testGetStepwiseOffsetNextStart(int expectedSeconds, int offsetStopInSeconds, int hopSize, int taskCount, MultiTaskOffsetHandler m) {
+    private void testGetStepwiseOffsetNextStart(int expectedSeconds, int offsetStopInSeconds, int hopSize, int taskCount, MultiTaskWindowHandler m) {
         BsonTimestamp ts = new BsonTimestamp(offsetStopInSeconds, 0);
-        BsonTimestamp bt = MultiTaskOffsetHandler.getStepwiseOffsetNextStart(ts, hopSize, taskCount);
+        BsonTimestamp bt = MultiTaskWindowHandler.getStepwiseWindowNextStart(ts, hopSize, taskCount);
 
         m = m.nextHop();
 

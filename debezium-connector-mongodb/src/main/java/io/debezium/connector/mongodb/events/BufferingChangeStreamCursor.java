@@ -37,7 +37,7 @@ import io.debezium.annotation.Immutable;
 import io.debezium.annotation.NotThreadSafe;
 import io.debezium.connector.mongodb.MongoDbConnector;
 import io.debezium.connector.mongodb.MongoDbTaskContext;
-import io.debezium.connector.mongodb.MultiTaskOffsetHandler;
+import io.debezium.connector.mongodb.MultiTaskWindowHandler;
 import io.debezium.connector.mongodb.ResumeTokens;
 import io.debezium.connector.mongodb.metrics.MongoDbStreamingChangeEventSourceMetrics;
 import io.debezium.util.Clock;
@@ -140,40 +140,40 @@ public class BufferingChangeStreamCursor<TResult> implements MongoChangeStreamCu
 
     public static class MultiTaskStreamManager<TResult> implements StreamManager<TResult> {
 
-        private MultiTaskOffsetHandler offsetHandler;
+        private MultiTaskWindowHandler windowHandler;
         BsonTimestamp lastTimestamp;
 
-        public MultiTaskStreamManager(MultiTaskOffsetHandler offsetHandler) {
-            this.offsetHandler = offsetHandler;
+        public MultiTaskStreamManager(MultiTaskWindowHandler windowHandler) {
+            this.windowHandler = windowHandler;
         }
 
         @Override
         public ChangeStreamIterable<TResult> updateStream(ChangeStreamIterable<TResult> stream) {
-            offsetHandler = offsetHandler.nextHop(lastTimestamp);
+            windowHandler = windowHandler.nextHop(lastTimestamp);
             LOGGER.info("task {} jump to next hop [{}-{}]",
-                    offsetHandler.taskId,
-                    offsetHandler.oplogStart.getTime(),
-                    offsetHandler.oplogStop.getTime());
-            return stream.startAtOperationTime(offsetHandler.optimizedOplogStart);
+                    windowHandler.taskId,
+                    windowHandler.oplogStart.getTime(),
+                    windowHandler.oplogStop.getTime());
+            return stream.startAtOperationTime(windowHandler.optimizedOplogStart);
         }
 
         @Override
         public boolean shouldUpdateStream(ResumableChangeStreamEvent<TResult> document) {
-            if (!offsetHandler.started) {
-                offsetHandler = offsetHandler.startAtTimestamp(ResumeTokens.getTimestamp(document.resumeToken));
-                LOGGER.info("Setting offset for stepwise taskId '{}'/'{}' start '{}' stop '{}'.",
-                        offsetHandler.taskId,
-                        offsetHandler.taskCount,
-                        offsetHandler.optimizedOplogStart,
-                        offsetHandler.oplogStop);
+            if (!windowHandler.started) {
+                windowHandler = windowHandler.startAtTimestamp(ResumeTokens.getTimestamp(document.resumeToken));
+                LOGGER.info("Setting window for stepwise taskId '{}'/'{}' start '{}' stop '{}'.",
+                        windowHandler.taskId,
+                        windowHandler.taskCount,
+                        windowHandler.optimizedOplogStart,
+                        windowHandler.oplogStop);
             }
             if (document.isEmpty()) {
                 return false;
             }
             ChangeStreamDocument<TResult> event = document.document.get();
             BsonTimestamp timestamp = event.getClusterTime();
-            if (timestamp.getTime() >= offsetHandler.oplogStop.getTime()) {
-                LOGGER.debug("Stop offset found {} compared to offsetStop {}", timestamp.getTime(), offsetHandler.oplogStop.getTime());
+            if (timestamp.getTime() >= windowHandler.oplogStop.getTime()) {
+                LOGGER.debug("Event timestamp found {} compared to window stop timestamp {}", timestamp.getTime(), windowHandler.oplogStop.getTime());
                 lastTimestamp = timestamp;
                 return true;
             }
@@ -234,12 +234,12 @@ public class BufferingChangeStreamCursor<TResult> implements MongoChangeStreamCu
         }
 
         public EventFetcher(ChangeStreamIterable<TResult> stream,
-                            MultiTaskOffsetHandler multiTaskOffsetHandler,
+                            MultiTaskWindowHandler multiTaskWindowHandler,
                             int capacity,
                             MongoDbStreamingChangeEventSourceMetrics metrics,
                             Clock clock,
                             Duration throttleMaxSleep) {
-            this(stream, new MultiTaskStreamManager<>(multiTaskOffsetHandler), capacity, metrics, clock, DelayStrategy.constant(throttleMaxSleep));
+            this(stream, new MultiTaskStreamManager<>(multiTaskWindowHandler), capacity, metrics, clock, DelayStrategy.constant(throttleMaxSleep));
         }
 
         /**
@@ -359,7 +359,6 @@ public class BufferingChangeStreamCursor<TResult> implements MongoChangeStreamCu
                     cursorRef.set(null);
                 }
             } while (isRunning());
-            close();
         }
 
         private void fetchEvents(MongoChangeStreamCursor<ChangeStreamDocument<TResult>> cursor) throws InterruptedException {
@@ -435,15 +434,15 @@ public class BufferingChangeStreamCursor<TResult> implements MongoChangeStreamCu
 
     public static <TResult> BufferingChangeStreamCursor<TResult> fromIterable(
                                                                               ChangeStreamIterable<TResult> stream,
-                                                                              MultiTaskOffsetHandler offsetHandler,
+                                                                              MultiTaskWindowHandler windowHandler,
                                                                               MongoDbTaskContext taskContext,
                                                                               MongoDbStreamingChangeEventSourceMetrics metrics,
                                                                               Clock clock) {
         var config = taskContext.getConnectorConfig();
 
-        String threadName = "replicator-fetcher-" + offsetHandler.taskId;
+        String threadName = "replicator-fetcher-" + windowHandler.taskId;
         return new BufferingChangeStreamCursor<>(
-                new EventFetcher<>(stream, offsetHandler, config.getMaxBatchSize(), metrics, clock, config.getPollInterval()),
+                new EventFetcher<>(stream, windowHandler, config.getMaxBatchSize(), metrics, clock, config.getPollInterval()),
                 Threads.newFixedThreadPool(MongoDbConnector.class, taskContext.getServerName(), threadName, 1),
                 config.getPollInterval());
     }

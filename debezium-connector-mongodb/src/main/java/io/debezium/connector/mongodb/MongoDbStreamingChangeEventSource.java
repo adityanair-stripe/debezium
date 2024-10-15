@@ -86,7 +86,7 @@ public class MongoDbStreamingChangeEventSource implements StreamingChangeEventSo
                 readChangeStream(client,
                         context,
                         partition,
-                        connectorConfig.getMultiTaskEnabled(),
+                        connectorConfig.isMultiTaskEnabled(),
                         connectorConfig.getMultiTaskGen(),
                         connectorConfig.getMaxTasks());
             });
@@ -107,11 +107,18 @@ public class MongoDbStreamingChangeEventSource implements StreamingChangeEventSo
         LOGGER.info("Reading change stream");
         final SplitEventHandler<BsonDocument> splitHandler = new SplitEventHandler<>();
 
-        MultiTaskOffsetHandler multiTaskOffsetHandler = getOffsetHandler(effectiveOffset, multiTaskEnabled, taskCount);
-        final ChangeStreamIterable<BsonDocument> stream = initChangeStream(client, effectiveOffset, multiTaskOffsetHandler);
+        MultiTaskWindowHandler multiTaskWindowHandler = getOffsetHandler(effectiveOffset, multiTaskEnabled, taskCount);
+        final ChangeStreamIterable<BsonDocument> stream = initChangeStream(client, effectiveOffset, multiTaskWindowHandler);
 
-        try (var cursor = multiTaskEnabled ? BufferingChangeStreamCursor.fromIterable(stream, multiTaskOffsetHandler, taskContext, streamingMetrics, clock).start()
-                : BufferingChangeStreamCursor.fromIterable(stream, taskContext, streamingMetrics, clock).start()) {
+        BufferingChangeStreamCursor<BsonDocument> cursor;
+        if (multiTaskEnabled) {
+            cursor = BufferingChangeStreamCursor.fromIterable(stream, multiTaskWindowHandler, taskContext, streamingMetrics, clock);
+        }
+        else {
+            cursor = BufferingChangeStreamCursor.fromIterable(stream, taskContext, streamingMetrics, clock);
+        }
+        try (cursor) {
+            cursor.start();
             while (context.isRunning()) {
                 waitWhenStreamingPaused(context, cursor);
                 var resumableEvent = cursor.tryNext();
@@ -199,7 +206,7 @@ public class MongoDbStreamingChangeEventSource implements StreamingChangeEventSo
         }
     }
 
-    protected ChangeStreamIterable<BsonDocument> initChangeStream(MongoClient client, MongoDbOffsetContext offsetContext, MultiTaskOffsetHandler offsetHandler) {
+    protected ChangeStreamIterable<BsonDocument> initChangeStream(MongoClient client, MongoDbOffsetContext offsetContext, MultiTaskWindowHandler offsetHandler) {
         final ChangeStreamIterable<BsonDocument> stream = MongoUtils.openChangeStream(client, taskContext);
 
         if (connectorConfig.getCaptureMode().isFullUpdate()) {
@@ -233,24 +240,24 @@ public class MongoDbStreamingChangeEventSource implements StreamingChangeEventSo
         return stream;
     }
 
-    private MultiTaskOffsetHandler getOffsetHandler(MongoDbOffsetContext offsetContext, boolean multiTaskEnabled, int taskCount) {
+    private MultiTaskWindowHandler getOffsetHandler(MongoDbOffsetContext offsetContext, boolean multiTaskEnabled, int taskCount) {
         if (!multiTaskEnabled) {
             return null;
         }
-        MultiTaskOffsetHandler multiTaskOffsetHandler = new MultiTaskOffsetHandler(connectorConfig.getMultiTaskHopSeconds(), taskCount, taskContext.getMongoTaskId());
+        MultiTaskWindowHandler multiTaskWindowHandler = new MultiTaskWindowHandler(connectorConfig.getMultiTaskHopSeconds(), taskCount, taskContext.getMongoTaskId());
         BsonTimestamp startTime = offsetContext.lastResumeTokenTime();
         if (startTime == null) {
             startTime = offsetContext.lastTimestamp();
         }
         if (startTime != null) {
-            multiTaskOffsetHandler = multiTaskOffsetHandler.startAtTimestamp(startTime);
-            LOGGER.info("Setting offset for stepwise taskId '{}'/'{}' start '{}' stop '{}'.",
-                    multiTaskOffsetHandler.taskId,
-                    multiTaskOffsetHandler.taskCount,
-                    multiTaskOffsetHandler.optimizedOplogStart,
-                    multiTaskOffsetHandler.oplogStop);
+            multiTaskWindowHandler = multiTaskWindowHandler.startAtTimestamp(startTime);
+            LOGGER.info("Setting window for stepwise taskId '{}'/'{}' start '{}' stop '{}'.",
+                    multiTaskWindowHandler.taskId,
+                    multiTaskWindowHandler.taskCount,
+                    multiTaskWindowHandler.optimizedOplogStart,
+                    multiTaskWindowHandler.oplogStop);
         }
-        return multiTaskOffsetHandler;
+        return multiTaskWindowHandler;
     }
 
     protected MongoDbOffsetContext emptyOffsets(MongoDbConnectorConfig connectorConfig) {
